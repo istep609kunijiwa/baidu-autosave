@@ -36,6 +36,7 @@ def transfer_share_streaming(
     folder_filter=None,
     exclude_folder_filter=None,
     progress_callback=None,
+    legacy_source_dir=None,
 ):
     if progress_callback:
         progress_callback("info", "【步骤2/4】扫描共享文件并过滤")
@@ -69,6 +70,9 @@ def transfer_share_streaming(
     warning_samples = []
     scanned_relative_dirs = set()
     local_files_dict = {}
+    legacy_scanned_relative_dirs = set()
+    legacy_files_dict = {}
+    migrated_files = []
     current_planned_paths = {}
     shared_file_batch = []
     transfer_item_buffer = []
@@ -194,6 +198,26 @@ def transfer_share_streaming(
             )
             scanned_relative_dirs.update(new_relative_dirs)
 
+        if legacy_source_dir:
+            new_legacy_relative_dirs = set(relative_dirs) - legacy_scanned_relative_dirs
+            if new_legacy_relative_dirs:
+                legacy_files_dict.update(
+                    storage._scan_local_files_dict(
+                        legacy_source_dir, progress_callback, new_legacy_relative_dirs
+                    )
+                )
+                legacy_scanned_relative_dirs.update(new_legacy_relative_dirs)
+            migrated_files.extend(
+                storage._migrate_legacy_filtered_candidates(
+                    candidates,
+                    legacy_source_dir,
+                    transfer_target_dir,
+                    legacy_files_dict,
+                    local_files_dict,
+                    progress_callback,
+                )
+            )
+
         transfer_list = storage._filter_transfer_candidates_core(
             candidates, local_files_dict, summary, warning_samples, current_planned_paths
         )
@@ -261,6 +285,19 @@ def transfer_share_streaming(
     if not total_transfer_count:
         if scan_error:
             return {"success": False, "error": parse_share_error(scan_error)}
+        if migrated_files:
+            message = f"已整理 {len(migrated_files)} 个旧版平铺文件到外层目录"
+            if progress_callback:
+                progress_callback("success", message)
+            return {
+                "success": True,
+                "partial": False,
+                "message": message,
+                "transferred_files": migrated_files,
+                "completed_count": len(migrated_files),
+                "transfer_success_count": 0,
+                "migrated_count": len(migrated_files),
+            }
         if progress_callback:
             progress_callback("info", "没有找到需要处理的文件")
         return {
@@ -279,6 +316,9 @@ def transfer_share_streaming(
         progress_callback,
         transfer_failed_files,
     )
+    if migrated_files:
+        result["migrated_count"] = len(migrated_files)
+        result["transferred_files"] = migrated_files + result.get("transferred_files", [])
     if scan_error:
         error_msg = parse_share_error(scan_error)
         if transfer_success_count > 0:
