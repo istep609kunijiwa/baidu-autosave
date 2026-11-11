@@ -123,6 +123,7 @@ TransferShare 是一个**开源、免费**的百度网盘自动转存工具。�
 |------|------|
 | ⏰ **定时自动执行** | 基于 GitHub Actions cron，每 6 小时自动运行，无需人工干预 |
 | 🔐 **密码链接支持** | 完美支持带提取码的分享链接 |
+| 📂 **分享子目录支持** | 可直接粘贴带 `#list/path=...` 的完整网页链接，只转存当前子目录 |
 | 📦 **批量转存** | 一次运行可处理上百个分享链接 |
 | 🧠 **智能去重** | 通过 MD5 对比自动跳过已存在的文件 |
 | 📁 **逐链接配置** | 每个链接可独立设置保存目录、过滤规则、重命名模式 |
@@ -189,6 +190,12 @@ https://pan.baidu.com/s/xxxxxx?pwd=abcd
 # 指定保存目录（链接后加空格和目录路径）
 https://pan.baidu.com/s/xxxxxx?pwd=abcd /我的资源/课程
 
+# 只转存分享中的指定子目录（直接复制浏览器地址栏的完整链接）
+https://pan.baidu.com/s/xxxxxx?pwd=abcd#list/path=%2Fsharelink123-456%2F%E5%AD%90%E7%9B%AE%E5%BD%95
+
+# 指定子目录并设置网盘保存目录
+https://pan.baidu.com/s/xxxxxx?pwd=abcd#list/path=%2Fsharelink123-456%2F%E5%AD%90%E7%9B%AE%E5%BD%95 /我的资源/课程
+
 # 对象格式（高级，可单独配置过滤规则）
 {
   "share_url": "https://pan.baidu.com/s/xxxxxx",
@@ -202,6 +209,14 @@ https://pan.baidu.com/s/xxxxxx?pwd=abcd /我的资源/课程
 ### 第四步：完成！
 
 工作流会自动在 UTC 时间 0:17、6:17、12:17、18:17 运行。也可以在 Actions 页面手动触发。
+
+### GitHub Actions 运维说明
+
+- 定时任务每 6 小时的第 17 分钟触发，并通过并发锁避免同一分支重复运行。
+- 第一次转存尝试的超时为 7 分钟，第二次尝试的超时为 10 分钟。
+- 加密失败状态保存在 `.transfershare_failed_transfers.json.enc`；密钥由 `TRANSFERSHARE_STATE_KEY` 提供。
+- checkout 使用 `persist-credentials: false`，测试 workflow 会执行 `actionlint`。
+- 单元测试覆盖 Python 3.9 与 Python 3.12。
 
 ## ⚙️ 详细配置
 
@@ -347,6 +362,8 @@ python -m unittest discover -s tests -p "test_*.py"
 ## 📄 许可证
 
 本项目采用 [MIT 许可证](LICENSE)。
+
+许可证文件：[LICENSE](LICENSE)
 
 ## 🤝 贡献
 

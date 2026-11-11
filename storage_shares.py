@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import posixpath
 
 from env_utils import read_positive_int_env
 from storage_metrics import emit_storage_metric
@@ -34,6 +35,55 @@ class SharedPathService:
     def load_shared_paths(self, share_url, pwd=None):
         self.client.access_shared(share_url, pwd)
         return self.client.shared_paths(shared_url=share_url)
+
+    @staticmethod
+    def _normalize_selected_path(path):
+        selected_path = str(path or "").strip().replace("\\", "/")
+        if not selected_path or selected_path == "/":
+            return ""
+        if not selected_path.startswith("/"):
+            selected_path = f"/{selected_path}"
+        return posixpath.normpath(selected_path)
+
+    def select_shared_path(self, shared_paths, selected_path):
+        """Return the single share entry selected by a Baidu ``#list/path`` fragment."""
+        paths = list(shared_paths or [])
+        target_path = self._normalize_selected_path(selected_path)
+        if not target_path:
+            return paths
+        if not paths:
+            raise ValueError("分享链接为空，无法定位指定子目录")
+
+        shared_root = self._resolve_shared_root(paths)
+        candidates = [target_path]
+        if shared_root and not (
+            target_path == shared_root or target_path.startswith(f"{shared_root}/")
+        ):
+            candidates.append(posixpath.join(shared_root, target_path.lstrip("/")))
+
+        normalized_candidates = []
+        for candidate in candidates:
+            normalized = self._normalize_selected_path(candidate)
+            if normalized and normalized not in normalized_candidates:
+                normalized_candidates.append(normalized)
+
+        for shared_path in paths:
+            path = self._normalize_selected_path(getattr(shared_path, "path", ""))
+            if path in normalized_candidates:
+                return [shared_path]
+
+        first_path = paths[0]
+        uk = first_path.uk
+        share_id = first_path.share_id
+        bdstoken = first_path.bdstoken
+        for candidate in normalized_candidates:
+            parent_path = posixpath.dirname(candidate) or "/"
+            for child in self.iter_shared_dir_children(parent_path, uk, share_id, bdstoken):
+                child_path = self._normalize_selected_path(child["path"])
+                if child_path == candidate:
+                    return [child["raw"]]
+
+        raise ValueError(f"分享链接指定的子目录不存在或无权访问: {target_path}")
 
     @staticmethod
     def _resolve_shared_root(shared_paths):

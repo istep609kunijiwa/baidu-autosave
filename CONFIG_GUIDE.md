@@ -86,7 +86,16 @@ BDUSS=xxx; STOKEN=yyy; BDUSS_BFESS=zzz; ...
 ]
 ```
 
-3️⃣ **高级配置（对象数组）**
+3️⃣ **只转存分享链接中的指定子目录**
+```json
+"share_urls": [
+  "https://pan.baidu.com/s/1Dy3hgtnhlStv1wDcM71ayA?pwd=f9c7#list/path=%2Fsharelink123-456%2F%E8%AF%BE%E7%A8%8B%2F%E7%AC%AC%E4%B8%80%E7%AB%A0"
+]
+```
+
+直接复制浏览器地址栏中带 `#list/path=...` 的完整链接即可。程序会解码并定位该目录，只转存这个目录；如果链接末尾再加空格和 `/保存目录`，则同时指定转存到自己网盘的位置。
+
+4️⃣ **高级配置（对象数组）**
 ```json
 "share_urls": [
   {
@@ -100,7 +109,7 @@ BDUSS=xxx; STOKEN=yyy; BDUSS_BFESS=zzz; ...
 ]
 ```
 
-4️⃣ **多行字符串**
+5️⃣ **多行字符串**
 ```json
 "share_urls": "https://pan.baidu.com/s/1Dy3hgtnhlStv1wDcM71ayA?pwd=f9c7 /文件夹1\nhttps://pan.baidu.com/s/1TfYiX1zfQBoMIfDDZNXwrA?pwd=4nxa /文件夹2"
 ```

@@ -13,7 +13,7 @@ class ShareLoader:
         self._list_files_progress_callback = None if progress is None else progress.report
         self.error_notifier = error_notifier
 
-    def load_entries(self, share_url, pwd=None):
+    def load_entries(self, share_url, pwd=None, share_path=None):
         """Return the same base context shape as BaiduStorage._load_share_entries()."""
         masked_share_url = mask_share_url(share_url) or share_url
         self.progress.report("info", f"【步骤1/4】访问分享链接: {masked_share_url}")
@@ -26,6 +26,13 @@ class ShareLoader:
             if self.error_notifier:
                 self.error_notifier(error, "获取分享文件列表失败", collect=True)
             return None
+
+        if share_path:
+            self.progress.report("info", f"定位分享子目录: {share_path}")
+            shared_paths = self.share_service.select_shared_path(shared_paths, share_path)
+            self.progress.report(
+                "info", f"已定位分享子目录: {getattr(shared_paths[0], 'path', share_path)}"
+            )
 
         return {
             "shared_paths": shared_paths,
@@ -55,9 +62,10 @@ class ShareLoader:
         pwd=None,
         folder_filter=None,
         exclude_folder_filter=None,
+        share_path=None,
     ):
         """Return the same context shape as BaiduStorage._load_share_context()."""
-        context = self.load_entries(share_url, pwd)
+        context = self.load_entries(share_url, pwd, share_path)
         if not context:
             return None
         return self.load_files(

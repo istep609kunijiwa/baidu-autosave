@@ -3,9 +3,10 @@
 
 import json
 import os
+import posixpath
 import re
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, urlsplit, urlunsplit
 from typing import Any, Dict, List, Mapping, Optional, Union
 
 from storage_rules import is_safe_relative_target_path
@@ -14,6 +15,7 @@ DEFAULT_SAVE_DIR = "/AutoTransfer"
 RETRY_SHARE_CONFIG_KEYS = (
     "share_url",
     "pwd",
+    "share_path",
     "save_dir",
     "regex_pattern",
     "regex_replace",
@@ -21,7 +23,7 @@ RETRY_SHARE_CONFIG_KEYS = (
     "exclude_folder_filter",
 )
 _SHARE_URL_PATTERN = re.compile(
-    r"https://pan\.baidu\.com/s/[A-Za-z0-9_-]+(?:\?[^\s]+)?",
+    r"https://pan\.baidu\.com/s/[A-Za-z0-9_-]+(?:\?[^\s#]*)?(?:#[^\s]*)?",
     re.IGNORECASE,
 )
 _SHARE_PATH_PATTERN = re.compile(r"/s/[A-Za-z0-9_-]+")
@@ -46,6 +48,10 @@ def build_retry_share_config(config: Dict[str, Any]) -> Dict[str, Any]:
         normalized["share_url"] = parsed_share["share_url"]
         if parsed_share.get("pwd") and not normalized.get("pwd"):
             normalized["pwd"] = parsed_share["pwd"]
+        if parsed_share.get("share_path") and not normalized.get("share_path"):
+            normalized["share_path"] = parsed_share["share_path"]
+    if normalized.get("share_path"):
+        normalized["share_path"] = _normalize_share_path(normalized["share_path"])
     return normalized
 
 
@@ -56,6 +62,20 @@ def retry_share_config_key(config: Dict[str, Any]) -> str:
         sort_keys=True,
         default=str,
     )
+
+
+def _normalize_share_path(value: Any) -> Optional[str]:
+    raw_path = str(value or "").strip().replace("\\", "/")
+    if not raw_path or raw_path == "/":
+        return None
+    if "\x00" in raw_path:
+        raise ValueError("分享子目录包含非法字符")
+    if not raw_path.startswith("/"):
+        raw_path = f"/{raw_path}"
+    if any(part == ".." for part in raw_path.split("/")):
+        raise ValueError("分享子目录不能包含上级目录跳转")
+    normalized = posixpath.normpath(raw_path)
+    return None if normalized == "/" else normalized
 
 
 def _parse_share_url(value: Any, require_full: bool = False) -> Optional[Dict[str, Any]]:
@@ -79,9 +99,13 @@ def _parse_share_url(value: Any, require_full: bool = False) -> Optional[Dict[st
     if pwd not in (None, "") and not _PWD_VALUE_PATTERN.fullmatch(pwd):
         raise ValueError("提取码必须是 4 位字母或数字")
 
+    fragment_values = parse_qs(parsed.fragment, keep_blank_values=True).get("list/path", [])
+    share_path = _normalize_share_path(fragment_values[0]) if fragment_values else None
+
     return {
         "share_url": urlunsplit(("https", "pan.baidu.com", path, "", "")),
         "pwd": pwd or None,
+        "share_path": share_path,
         "match": match,
     }
 
@@ -101,6 +125,10 @@ def _normalize_share_object(item: Dict[str, Any]) -> Dict[str, Any]:
         share_config["share_url"] = parsed["share_url"]
         if parsed.get("pwd") and not share_config.get("pwd"):
             share_config["pwd"] = parsed["pwd"]
+        if parsed.get("share_path") and not share_config.get("share_path"):
+            share_config["share_path"] = parsed["share_path"]
+    if share_config.get("share_path"):
+        share_config["share_path"] = _normalize_share_path(share_config["share_path"])
     return share_config
 
 
@@ -166,6 +194,7 @@ def parse_share_links_from_text(
         match = parsed["match"]
         share_url = parsed["share_url"]
         pwd = parsed.get("pwd")
+        share_path = parsed.get("share_path")
         save_dir = None
 
         if not pwd:
@@ -202,6 +231,8 @@ def parse_share_links_from_text(
             "pwd": pwd,
             "line_number": line_idx + 1,
         }
+        if share_path:
+            config["share_path"] = share_path
         if save_dir:
             config["save_dir"] = save_dir
         share_configs.append(config)
@@ -221,12 +252,17 @@ def _serialize_share_config(
     except ValueError:
         parsed = None
     pwd = str(share_config.get("pwd") or "").strip()
+    share_path = _normalize_share_path(share_config.get("share_path"))
     if parsed:
         share_url = parsed["share_url"]
         if not pwd and parsed.get("pwd"):
             pwd = parsed["pwd"]
+        if not share_path and parsed.get("share_path"):
+            share_path = parsed["share_path"]
     if pwd:
         share_url = f"{share_url}?pwd={pwd}"
+    if share_path:
+        share_url = f"{share_url}#list/path={quote(share_path, safe='')}"
 
     save_dir = share_config.get("save_dir") or default_save_dir
     if save_dir:
@@ -493,6 +529,16 @@ def _validate_share_object_config(
             errors.append(f"❌ {prefix}的 pwd 必须是字符串，当前类型: {type(pwd).__name__}")
         elif not _PWD_VALUE_PATTERN.fullmatch(pwd):
             errors.append(f"❌ {prefix}的 pwd 必须是 4 位字母或数字")
+
+    share_path = item.get("share_path")
+    if share_path not in (None, ""):
+        if not isinstance(share_path, str):
+            errors.append(f"❌ {prefix}的 share_path 必须是字符串")
+        else:
+            try:
+                _normalize_share_path(share_path)
+            except ValueError as exc:
+                errors.append(f"❌ {prefix}的 share_path 格式不正确: {exc}")
 
     save_dir = item.get("save_dir")
     if save_dir not in (None, ""):

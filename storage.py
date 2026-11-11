@@ -359,6 +359,7 @@ class BaiduStorage:
         share_url = config["share_url"]
         masked_share_url = mask_share_url(share_url) or share_url
         pwd = config.get("pwd")
+        share_path = config.get("share_path")
         save_dir = config.get("save_dir")
         regex_pattern = config.get("regex_pattern")
         regex_replace = config.get("regex_replace")
@@ -384,6 +385,7 @@ class BaiduStorage:
             regex_replace=regex_replace,
             folder_filter=folder_filter,
             exclude_folder_filter=exclude_folder_filter,
+            share_path=share_path,
         )
         result_record = self._build_result_record(index, share_url, save_dir, result, config)
 
@@ -601,8 +603,8 @@ class BaiduStorage:
         progress = ProgressReporter(progress_callback) if progress_callback else None
         return ShareLoader(self.share_service, progress, notify_error)
 
-    def _load_share_entries(self, share_url, pwd, progress_callback=None):
-        return self._share_loader(progress_callback).load_entries(share_url, pwd)
+    def _load_share_entries(self, share_url, pwd, progress_callback=None, share_path=None):
+        return self._share_loader(progress_callback).load_entries(share_url, pwd, share_path)
 
     def _load_share_files(
         self,
@@ -624,12 +626,14 @@ class BaiduStorage:
         folder_filter,
         progress_callback=None,
         exclude_folder_filter=None,
+        share_path=None,
     ):
         return self._share_loader(progress_callback).load_context(
             share_url,
             pwd,
             folder_filter,
             exclude_folder_filter=exclude_folder_filter,
+            share_path=share_path,
         )
 
     def _candidate_filter(self, progress_callback=None):
@@ -939,8 +943,13 @@ class BaiduStorage:
         )
 
     def _resolve_local_files(
-        self, target_dir, normalized_relative_dirs, progress_callback, scan_cache,
-        force_refresh, narrow_clear,
+        self,
+        target_dir,
+        normalized_relative_dirs,
+        progress_callback,
+        scan_cache,
+        force_refresh,
+        narrow_clear,
     ):
         normalized_target_dir = self.path_service.normalize_path(target_dir)
         cache_key = (normalized_target_dir, normalized_relative_dirs, True)
@@ -1009,8 +1018,12 @@ class BaiduStorage:
 
         normalized_relative_dirs = self._collect_and_normalize_parent_dirs(items)
         local_files_dict = self._resolve_local_files(
-            target_dir, normalized_relative_dirs, progress_callback, scan_cache,
-            force_refresh, narrow_clear=False,
+            target_dir,
+            normalized_relative_dirs,
+            progress_callback,
+            scan_cache,
+            force_refresh,
+            narrow_clear=False,
         )
         return self._classify_items_by_md5(items, local_files_dict)
 
@@ -1033,8 +1046,12 @@ class BaiduStorage:
 
         normalized_relative_dirs = self._collect_and_normalize_parent_dirs(batch_items)
         local_files_dict = self._resolve_local_files(
-            target_dir, normalized_relative_dirs, progress_callback, scan_cache,
-            force_refresh, narrow_clear=True,
+            target_dir,
+            normalized_relative_dirs,
+            progress_callback,
+            scan_cache,
+            force_refresh,
+            narrow_clear=True,
         )
         return self._classify_items_by_md5(batch_items, local_files_dict)
 
@@ -1591,6 +1608,7 @@ class BaiduStorage:
         regex_replace=None,
         folder_filter=None,
         exclude_folder_filter=None,
+        share_path=None,
     ):
         """转存分享文件"""
         masked_share_url = mask_share_url(share_url) or share_url
@@ -1609,7 +1627,9 @@ class BaiduStorage:
             save_dir = self._normalize_save_dir(save_dir)
 
             try:
-                context = self._load_share_entries(share_url, pwd, progress_callback)
+                context = self._load_share_entries(
+                    share_url, pwd, progress_callback, share_path=share_path
+                )
                 if not context:
                     return {"success": False, "error": "获取分享文件列表失败"}
 
