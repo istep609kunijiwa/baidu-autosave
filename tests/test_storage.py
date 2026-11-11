@@ -2541,7 +2541,46 @@ class BaiduStorageFlowTests(unittest.TestCase):
             None,
             None,
             None,
+            "/save",
         )
+
+    def test_transfer_share_migrates_matching_legacy_flat_files_into_outer_folder(self):
+        shared_dir = SimpleNamespace(
+            is_dir=True,
+            fs_id=10,
+            path="/share/course",
+            uk=1,
+            share_id=2,
+            bdstoken="token",
+        )
+        entry_context = {
+            "shared_paths": [shared_dir],
+            "uk": 1,
+            "share_id": 2,
+            "bdstoken": "token",
+        }
+        self.storage._normalize_save_dir = Mock(return_value="/save")
+        self.storage._load_share_entries = Mock(return_value=entry_context)
+        self.storage.share_service.iter_shared_files.return_value = [
+            {"fs_id": 11, "path": "course/video.mp4", "md5": "same-md5"}
+        ]
+        self.storage._scan_local_files_dict = Mock(
+            side_effect=lambda directory, *_args, **_kwargs: (
+                {"video.mp4": "same-md5"} if directory == "/save" else {}
+            )
+        )
+        self.storage.path_service.ensure_dir_exists.return_value = True
+        self.storage._clear_local_files_cache = Mock()
+
+        result = self.storage.transfer_share("url", save_dir="/save", regex_pattern=r"\.mp4$")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(1, result["migrated_count"])
+        self.assertEqual(["video.mp4"], result["transferred_files"])
+        self.storage.client.rename.assert_called_once_with(
+            "save/video.mp4", "save/course/video.mp4"
+        )
+        self.storage.client.transfer_shared_paths.assert_not_called()
 
     def test_transfer_share_skips_tree_divide_when_folder_filter_is_set(self):
         shared_dir = SimpleNamespace(is_dir=True, fs_id=10, path="/share/course")
