@@ -753,6 +753,80 @@ class BaiduStorage:
         for normalized_path, src_md5 in self._transfer_item_local_entries(item):
             local_files_dict[normalized_path] = src_md5
 
+    def _migrate_legacy_filtered_candidates(
+        self,
+        candidates,
+        legacy_source_dir,
+        target_dir,
+        legacy_files_dict,
+        target_files_dict,
+        progress_callback=None,
+    ):
+        """Move files flattened by the old filtered-transfer layout.
+
+        Older filtered runs wrote selected-folder contents directly into
+        ``legacy_source_dir``.  Baidu may report success without creating a
+        second copy when the same shared file is saved again.  Only migrate a
+        legacy file when its relative path *and* MD5 match the current shared
+        candidate, so unrelated files are never moved by name alone.
+        """
+        if not legacy_source_dir or not target_dir:
+            return []
+
+        normalized_legacy = self.path_service.normalize_path(legacy_source_dir).rstrip("/")
+        normalized_target = self.path_service.normalize_path(target_dir).rstrip("/")
+        if normalized_legacy == normalized_target:
+            return []
+
+        migrated = []
+        affected_dirs = set()
+        for candidate in candidates:
+            if candidate.get("need_rename"):
+                continue
+
+            src_md5 = candidate.get("src_md5")
+            clean_normalized = candidate.get("clean_normalized")
+            if not src_md5 or not clean_normalized:
+                continue
+            if clean_normalized in target_files_dict:
+                continue
+            if legacy_files_dict.get(clean_normalized) != src_md5:
+                continue
+
+            clean_path = str(candidate.get("clean_path") or "").lstrip("/")
+            if not clean_path:
+                continue
+            source_path = posixpath.join(normalized_legacy, clean_path)
+            target_path = posixpath.join(normalized_target, clean_path)
+            target_parent = posixpath.dirname(target_path)
+            if not self.path_service.ensure_dir_exists(target_parent):
+                continue
+
+            try:
+                self.client.rename(source_path, target_path)
+            except Exception as exc:
+                if progress_callback:
+                    progress_callback(
+                        "warning",
+                        f"整理旧版平铺文件失败，将改为重新转存: {clean_path} - {exc}",
+                    )
+                continue
+
+            target_files_dict[clean_normalized] = src_md5
+            legacy_files_dict.pop(clean_normalized, None)
+            migrated.append(clean_path)
+            affected_dirs.update(self._candidate_parent_dirs(clean_path))
+
+        if migrated:
+            self._clear_local_files_cache(legacy_source_dir, affected_dirs)
+            self._clear_local_files_cache(target_dir, affected_dirs)
+            if progress_callback:
+                progress_callback(
+                    "success",
+                    f"已将旧版本平铺的 {len(migrated)} 个文件整理到外层目录",
+                )
+        return migrated
+
     def _filter_planned_path_conflict(
         self,
         planned_paths,
@@ -1585,6 +1659,7 @@ class BaiduStorage:
         folder_filter=None,
         exclude_folder_filter=None,
         progress_callback=None,
+        legacy_source_dir=None,
     ):
         return storage_streaming.transfer_share_streaming(
             self,
@@ -1596,6 +1671,7 @@ class BaiduStorage:
             folder_filter,
             exclude_folder_filter,
             progress_callback,
+            legacy_source_dir,
         )
 
     def transfer_share(
@@ -1634,6 +1710,7 @@ class BaiduStorage:
                     return {"success": False, "error": "获取分享文件列表失败"}
 
                 transfer_target_dir = save_dir
+                legacy_source_dir = None
                 shared_paths = context.get("shared_paths") or []
                 if (
                     save_dir
@@ -1645,6 +1722,7 @@ class BaiduStorage:
                     # filtered transfers preserve the same outer directory layout
                     # as the whole-directory fast path.
                     transfer_target_dir = self._dir_fast_path_target_dir(context, save_dir)
+                    legacy_source_dir = save_dir
                 if self._can_try_dir_fast_path(
                     context, save_dir, regex_pattern, regex_replace, folder_filter
                 ):
@@ -1667,6 +1745,7 @@ class BaiduStorage:
                     folder_filter,
                     exclude_folder_filter,
                     progress_callback,
+                    legacy_source_dir,
                 )
             except Exception as e:
                 return {"success": False, "error": parse_share_error(e)}
