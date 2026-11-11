@@ -16,7 +16,9 @@ if _VENDOR_BAIDUPCS_PATH.exists():
     sys.path.insert(0, str(_VENDOR_BAIDUPCS_PATH))
 
 from baidupcs_py.baidupcs import BaiduPCSApi
+from baidu_share_compat import install_share_compat
 
+install_share_compat()
 from env_utils import read_non_negative_int_env, read_positive_int_env
 from storage_errors import classify_storage_error
 from utils import mask_sensitive
