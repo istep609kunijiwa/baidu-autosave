@@ -2517,6 +2517,32 @@ class BaiduStorageFlowTests(unittest.TestCase):
         self.storage._load_share_files.assert_not_called()
         self.storage.share_service.iter_shared_files.assert_called_once()
 
+    def test_transfer_share_preserves_outer_folder_when_regex_is_set(self):
+        shared_dir = SimpleNamespace(is_dir=True, fs_id=10, path="/share/course")
+        entry_context = {
+            "shared_paths": [shared_dir],
+            "uk": 1,
+            "share_id": 2,
+            "bdstoken": "token",
+        }
+        self.storage._normalize_save_dir = Mock(return_value="/save")
+        self.storage._load_share_entries = Mock(return_value=entry_context)
+        self.storage._transfer_share_streaming = Mock(return_value={"success": True})
+
+        result = self.storage.transfer_share("url", save_dir="/save", regex_pattern="old")
+
+        self.assertTrue(result["success"])
+        self.storage._transfer_share_streaming.assert_called_once_with(
+            entry_context,
+            "url",
+            "/save/course",
+            "old",
+            None,
+            None,
+            None,
+            None,
+        )
+
     def test_transfer_share_skips_tree_divide_when_folder_filter_is_set(self):
         shared_dir = SimpleNamespace(is_dir=True, fs_id=10, path="/share/course")
         entry_context = {
