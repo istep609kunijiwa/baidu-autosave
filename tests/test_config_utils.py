@@ -7,6 +7,7 @@ from unittest.mock import patch
 from config_utils import (
     apply_global_share_defaults,
     build_share_urls_text,
+    load_env_config,
     load_runtime_config,
     normalize_share_urls_value,
     parse_share_links_from_text,
@@ -189,6 +190,24 @@ class ApplyGlobalShareDefaultsTests(unittest.TestCase):
 
 
 class ValidateRuntimeConfigTests(unittest.TestCase):
+    def test_load_env_config_reads_global_filter_secrets(self):
+        config = load_env_config(
+            {
+                "BAIDU_COOKIES": "BDUSS=foo; STOKEN=bar",
+                "SHARE_URLS": "https://pan.baidu.com/s/abc12345",
+                "SAVE_DIR": "/Auto",
+                "FOLDER_FILTER": "课程|资料",
+                "EXCLUDE_FOLDER_FILTER": "微信|扫码|包邮",
+                "REGEX_PATTERN": r"^(?!.*(?:微信|扫码|包邮)).*$",
+                "REGEX_REPLACE": "",
+            }
+        )
+
+        self.assertEqual("课程|资料", config["folder_filter"])
+        self.assertEqual("微信|扫码|包邮", config["exclude_folder_filter"])
+        self.assertEqual(r"^(?!.*(?:微信|扫码|包邮)).*$", config["regex_pattern"])
+        self.assertEqual("", config["regex_replace"])
+
     def test_validate_runtime_config_accepts_alias_fields(self):
         config = {
             "BAIDU_COOKIES": "BDUSS=foo; STOKEN=bar",
