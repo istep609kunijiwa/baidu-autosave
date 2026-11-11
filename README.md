@@ -177,7 +177,20 @@ python save_baidu_cookies.py --repo YOUR_USERNAME/transfershare
 | `SHARE_URLS` | ✅ | 分享链接列表，每行一个（格式见下方说明） |
 | `SAVE_DIR` | | 默认保存目录，默认 `/AutoTransfer` |
 | `WECHAT_WEBHOOK` | | 企业微信机器人 Webhook URL |
+| `FOLDER_FILTER` | | 只扫描名称匹配该正则的文件夹 |
+| `EXCLUDE_FOLDER_FILTER` | | 跳过名称匹配该正则的文件夹及其全部内容 |
+| `REGEX_PATTERN` | | 只转存完整相对路径匹配该正则的文件 |
+| `REGEX_REPLACE` | | 与 `REGEX_PATTERN` 配合重命名匹配文件 |
 | `TRANSFERSHARE_STATE_KEY` | | 加密失败清单的密钥，用 `openssl rand -base64 32` 生成 |
+
+例如排除路径中包含“微信”“扫码”或“包邮”的文件，并直接跳过同名文件夹：
+
+```text
+REGEX_PATTERN=^(?!.*(?:微信|扫码|包邮)).*$
+EXCLUDE_FOLDER_FILTER=微信|扫码|包邮
+```
+
+过滤只影响之后的转存，不会删除已经保存到网盘中的内容。
 
 <a id="share-link-format"></a>
 

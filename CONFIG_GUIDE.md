@@ -304,6 +304,11 @@ export BAIDU_COOKIES="BDUSS=xxx; STOKEN=yyy"
 export SHARE_URLS="https://pan.baidu.com/s/1xxx?pwd=xxx"
 export SAVE_DIR="/AutoTransfer"
 export WECHAT_WEBHOOK="https://qyapi.weixin.qq.com/..."
+export FOLDER_FILTER="课程|资料"
+export EXCLUDE_FOLDER_FILTER="微信|扫码|包邮"
+export REGEX_PATTERN='^(?!.*(?:微信|扫码|包邮)).*$'
+# 可选：匹配后重命名
+export REGEX_REPLACE=""
 
 # 运行程序
 python transfer_runner.py
@@ -313,6 +318,21 @@ python transfer_runner.py
 1. 打开仓库的 Settings → Secrets and variables → Actions
 2. 添加对应的 Secret（推荐使用 `save_baidu_cookies.py --repo owner/repo` 自动添加）
 3. 可选添加 `TRANSFERSHARE_STATE_KEY`：用于加密跨 run 持久化失败清单，建议用 `openssl rand -base64 32` 生成
+
+过滤相关 Secret 均为可选：
+- `FOLDER_FILTER`：只扫描名称匹配正则的文件夹
+- `EXCLUDE_FOLDER_FILTER`：跳过名称匹配正则的文件夹及其全部内容
+- `REGEX_PATTERN`：只转存完整相对路径匹配正则的文件
+- `REGEX_REPLACE`：与 `REGEX_PATTERN` 搭配重命名
+
+要排除路径中包含“微信”“扫码”或“包邮”的文件，并跳过同名文件夹，可设置：
+
+```text
+REGEX_PATTERN=^(?!.*(?:微信|扫码|包邮)).*$
+EXCLUDE_FOLDER_FILTER=微信|扫码|包邮
+```
+
+过滤规则只作用于后续转存，不会删除网盘中已经存在的内容。
 
 注意：失败清单可能包含分享链接、提取码和文件路径。workflow 只缓存 `.transfershare_failed_transfers.json.enc`；未配置 `TRANSFERSHARE_STATE_KEY` 时会跳过跨 run 状态恢复和保存，不会退回到明文缓存。
 

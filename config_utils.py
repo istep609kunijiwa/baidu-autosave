@@ -154,10 +154,12 @@ def normalize_config_aliases(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     normalized["share_urls"] = raw.get("share_urls") or raw.get("SHARE_URLS")
     normalized["save_dir"] = raw.get("save_dir") or raw.get("SAVE_DIR") or DEFAULT_SAVE_DIR
     normalized["wechat_webhook"] = raw.get("wechat_webhook") or raw.get("WECHAT_WEBHOOK")
-    normalized["folder_filter"] = raw.get("folder_filter")
-    normalized["exclude_folder_filter"] = raw.get("exclude_folder_filter")
-    normalized["regex_pattern"] = raw.get("regex_pattern")
-    normalized["regex_replace"] = raw.get("regex_replace")
+    normalized["folder_filter"] = raw.get("folder_filter") or raw.get("FOLDER_FILTER")
+    normalized["exclude_folder_filter"] = raw.get("exclude_folder_filter") or raw.get(
+        "EXCLUDE_FOLDER_FILTER"
+    )
+    normalized["regex_pattern"] = raw.get("regex_pattern") or raw.get("REGEX_PATTERN")
+    normalized["regex_replace"] = raw.get("regex_replace") or raw.get("REGEX_REPLACE")
     return normalized
 
 
@@ -169,6 +171,10 @@ def load_env_config(env: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
             "SHARE_URLS": values.get("SHARE_URLS"),
             "SAVE_DIR": values.get("SAVE_DIR", DEFAULT_SAVE_DIR),
             "WECHAT_WEBHOOK": values.get("WECHAT_WEBHOOK"),
+            "FOLDER_FILTER": values.get("FOLDER_FILTER"),
+            "EXCLUDE_FOLDER_FILTER": values.get("EXCLUDE_FOLDER_FILTER"),
+            "REGEX_PATTERN": values.get("REGEX_PATTERN"),
+            "REGEX_REPLACE": values.get("REGEX_REPLACE"),
         }
     )
 
