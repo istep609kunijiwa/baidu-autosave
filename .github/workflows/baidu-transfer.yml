@@ -89,6 +89,10 @@ jobs:
         SHARE_URLS: ${{ secrets.SHARE_URLS }}
         SAVE_DIR: ${{ secrets.SAVE_DIR }}
         WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+        FOLDER_FILTER: ${{ secrets.FOLDER_FILTER }}
+        EXCLUDE_FOLDER_FILTER: ${{ secrets.EXCLUDE_FOLDER_FILTER }}
+        REGEX_PATTERN: ${{ secrets.REGEX_PATTERN }}
+        REGEX_REPLACE: ${{ secrets.REGEX_REPLACE }}
         TRANSFERSHARE_FAILED_STATE_ENABLED: ${{ steps.failed_state.outputs.enabled }}
         TRANSFERSHARE_SUPPRESS_RESULT_NOTIFICATION: "1"
       run: |
@@ -105,6 +109,10 @@ jobs:
         SHARE_URLS: ${{ secrets.SHARE_URLS }}
         SAVE_DIR: ${{ secrets.SAVE_DIR }}
         WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+        FOLDER_FILTER: ${{ secrets.FOLDER_FILTER }}
+        EXCLUDE_FOLDER_FILTER: ${{ secrets.EXCLUDE_FOLDER_FILTER }}
+        REGEX_PATTERN: ${{ secrets.REGEX_PATTERN }}
+        REGEX_REPLACE: ${{ secrets.REGEX_REPLACE }}
         TRANSFERSHARE_FAILED_STATE_ENABLED: ${{ steps.failed_state.outputs.enabled }}
       run: |
         echo "第一次尝试失败，开始第二次尝试"
