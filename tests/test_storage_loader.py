@@ -28,7 +28,9 @@ class ShareLoaderTest(unittest.TestCase):
 
     def make_loader(self, share_service=None, progress_messages=None, error_notifications=None):
         if share_service is None:
-            share_service = Mock(spec_set=["load_shared_paths", "list_shared_files"])
+            share_service = Mock(
+                spec_set=["load_shared_paths", "select_shared_path", "list_shared_files"]
+            )
         progress_messages = progress_messages if progress_messages is not None else []
         error_notifications = error_notifications if error_notifications is not None else []
 
@@ -92,6 +94,27 @@ class ShareLoaderTest(unittest.TestCase):
         self.assertEqual([shared_path], result["shared_paths"])
         self.assertIn(("info", "【步骤1/4】访问分享链接: plain-share-url"), progress_messages)
         self.assertNotIn(("info", "使用密码访问分享链接"), progress_messages)
+        self.assertEqual([], error_notifications)
+
+    def test_load_entries_selects_subdirectory_from_share_path(self):
+        root = self.make_shared_path(path="/sharelink123-456/喜剧")
+        selected = self.make_shared_path(path="/sharelink123-456/喜剧/子目录")
+        selected.is_dir = True
+        loader, share_service, progress_messages, error_notifications = self.make_loader()
+        share_service.load_shared_paths.return_value = [root]
+        share_service.select_shared_path.return_value = [selected]
+
+        result = loader.load_entries(
+            "https://pan.baidu.com/s/abc12345",
+            "1a2B",
+            "/sharelink123-456/喜剧/子目录",
+        )
+
+        self.assertEqual([selected], result["shared_paths"])
+        share_service.select_shared_path.assert_called_once_with(
+            [root], "/sharelink123-456/喜剧/子目录"
+        )
+        self.assertTrue(any("定位分享子目录" in message for _, message in progress_messages))
         self.assertEqual([], error_notifications)
 
     def test_load_entries_empty_share_notifies_and_returns_none(self):

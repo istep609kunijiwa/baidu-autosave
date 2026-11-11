@@ -459,6 +459,61 @@ class SharedPathServiceTests(unittest.TestCase):
     def setUp(self):
         self.service = SharedPathService(Mock())
 
+    def test_select_shared_path_returns_matching_root_entry(self):
+        selected = SimpleNamespace(
+            path="/sharelink123-456/喜剧",
+            is_dir=True,
+            uk=1,
+            share_id=2,
+            bdstoken="token",
+            fs_id=10,
+        )
+
+        result = self.service.select_shared_path([selected], "/sharelink123-456/喜剧")
+
+        self.assertEqual([selected], result)
+        self.service.client.list_shared_paths.assert_not_called()
+
+    def test_select_shared_path_resolves_nested_directory_from_fragment_path(self):
+        root = SimpleNamespace(
+            path="/sharelink123-456/喜剧",
+            is_dir=True,
+            uk=1,
+            share_id=2,
+            bdstoken="token",
+            fs_id=10,
+        )
+        nested = SimpleNamespace(
+            path="/sharelink123-456/喜剧/子目录",
+            is_dir=True,
+            uk=1,
+            share_id=2,
+            bdstoken="token",
+            fs_id=11,
+        )
+        self.service.client.list_shared_paths.return_value = [nested]
+
+        result = self.service.select_shared_path([root], "/sharelink123-456/喜剧/子目录")
+
+        self.assertEqual([nested], result)
+        self.service.client.list_shared_paths.assert_called_once_with(
+            "/sharelink123-456/喜剧", 1, 2, "token", page=1, size=100
+        )
+
+    def test_select_shared_path_raises_for_missing_directory(self):
+        root = SimpleNamespace(
+            path="/sharelink123-456/喜剧",
+            is_dir=True,
+            uk=1,
+            share_id=2,
+            bdstoken="token",
+            fs_id=10,
+        )
+        self.service.client.list_shared_paths.return_value = []
+
+        with self.assertRaisesRegex(ValueError, "指定的子目录不存在"):
+            self.service.select_shared_path([root], "/sharelink123-456/喜剧/不存在")
+
     def test_resolve_shared_root_uses_common_parent(self):
         shared_paths = [
             SimpleNamespace(path="/sharelink123-456/电影", is_dir=True),
@@ -1537,7 +1592,10 @@ class BaiduStorageFlowTests(unittest.TestCase):
         self.assertEqual(4, result["completed_count"])
         self.assertEqual(
             [[1, 3], [4, 5]],
-            [call.kwargs["fs_ids"] for call in self.storage.client.transfer_shared_paths.call_args_list],
+            [
+                call.kwargs["fs_ids"]
+                for call in self.storage.client.transfer_shared_paths.call_args_list
+            ],
         )
 
     def test_transfer_share_streaming_does_not_retry_failed_duplicate_record(self):
@@ -2519,6 +2577,25 @@ class BaiduStorageFlowTests(unittest.TestCase):
             regex_replace=None,
             folder_filter=None,
             exclude_folder_filter=r"^node_modules$",
+            share_path=None,
+        )
+
+    def test_process_single_share_config_passes_selected_share_path(self):
+        self.storage.transfer_share = Mock(return_value={"success": True, "message": "成功"})
+
+        self.storage._process_single_share_config(
+            1,
+            1,
+            {
+                "share_url": "https://pan.baidu.com/s/abc",
+                "share_path": "/sharelink123-456/喜剧/子目录",
+                "save_dir": "/save",
+            },
+        )
+
+        self.assertEqual(
+            "/sharelink123-456/喜剧/子目录",
+            self.storage.transfer_share.call_args.kwargs["share_path"],
         )
 
     def test_process_single_share_config_handles_skipped_result(self):
@@ -3990,9 +4067,7 @@ class BaiduStorageMetricsFlowTests(unittest.TestCase):
     @patch("storage_transfer_plan.emit_storage_metric", side_effect=emit_storage_metric)
     @patch("storage_transfer_plan.handle_error_and_notify")
     @patch("storage_transfer_plan.time.sleep")
-    def test_execute_transfer_plan_emits_rate_limit_sleep_metric(
-        self, sleep, notify, emit_mock
-    ):
+    def test_execute_transfer_plan_emits_rate_limit_sleep_metric(self, sleep, notify, emit_mock):
         transfer_item = TransferItem(1, "/save", "a.txt", "a.txt", False, "md5-a")
         self.storage.client.transfer_shared_paths.side_effect = [
             RuntimeError("error_code: -65"),
@@ -4001,9 +4076,7 @@ class BaiduStorageMetricsFlowTests(unittest.TestCase):
         self.storage._scan_local_files_dict = Mock(return_value={})
 
         with patch("storage_transfer_plan.RATE_LIMIT_WAIT_TIME", 10):
-            self.storage._execute_transfer_plan(
-                [transfer_item], "url", 1, 2, "token", "/save"
-            )
+            self.storage._execute_transfer_plan([transfer_item], "url", 1, 2, "token", "/save")
 
         events = [call.args[0] for call in emit_mock.call_args_list]
         self.assertIn("rate_limit_sleep", events)
@@ -4041,7 +4114,9 @@ class BatchLocalRecoveryVerificationTests(unittest.TestCase):
             RuntimeError("boom"),
             None,
         ]
-        self.storage._verify_existing_for_batch = Mock(return_value=([transfer_list[0]], [transfer_list[1]]))
+        self.storage._verify_existing_for_batch = Mock(
+            return_value=([transfer_list[0]], [transfer_list[1]])
+        )
 
         with patch("storage_transfer_plan.time.sleep"):
             success_count, successful_items, failed_items = self.storage._execute_transfer_plan(

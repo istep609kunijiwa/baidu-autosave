@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from config_utils import (
     apply_global_share_defaults,
+    build_share_urls_text,
     load_runtime_config,
     normalize_share_urls_value,
     parse_share_links_from_text,
@@ -50,6 +51,42 @@ https://pan.baidu.com/s/xyz_789
     def test_parse_share_links_from_text_skips_invalid_pwd_query(self):
         self.assertEqual(
             [], parse_share_links_from_text("https://pan.baidu.com/s/abc12345?pwd=abcde")
+        )
+
+    def test_parse_share_links_from_text_preserves_baidu_subdirectory_fragment(self):
+        result = parse_share_links_from_text(
+            "https://pan.baidu.com/s/abc12345?pwd=1a2B"
+            "#list/path=%2Fsharelink123-456%2F%E5%96%9C%E5%89%A7%2F%E5%AD%90%E7%9B%AE%E5%BD%95"
+            "&vmode=list&parentPath=%2Fsharelink123-456 /Docs"
+        )
+
+        self.assertEqual("https://pan.baidu.com/s/abc12345", result[0]["share_url"])
+        self.assertEqual("1a2B", result[0]["pwd"])
+        self.assertEqual("/sharelink123-456/喜剧/子目录", result[0]["share_path"])
+        self.assertEqual("/Docs", result[0]["save_dir"])
+
+    def test_parse_share_links_from_text_supports_fragment_without_password(self):
+        result = parse_share_links_from_text(
+            "https://pan.baidu.com/s/abc12345#list/path=%2Fsharelink123-456%2F%E8%B5%84%E6%96%99"
+        )
+
+        self.assertEqual("/sharelink123-456/资料", result[0]["share_path"])
+
+    def test_build_share_urls_text_round_trips_selected_subdirectory(self):
+        text = build_share_urls_text(
+            [
+                {
+                    "share_url": "https://pan.baidu.com/s/abc12345",
+                    "pwd": "1a2B",
+                    "share_path": "/sharelink123-456/喜剧/子目录",
+                }
+            ]
+        )
+
+        self.assertEqual(
+            "https://pan.baidu.com/s/abc12345?pwd=1a2B"
+            "#list/path=%2Fsharelink123-456%2F%E5%96%9C%E5%89%A7%2F%E5%AD%90%E7%9B%AE%E5%BD%95",
+            text,
         )
 
 
@@ -115,6 +152,16 @@ class RetryShareConfigKeyTests(unittest.TestCase):
             ),
             retry_share_config_key(
                 {"share_url": "https://pan.baidu.com/s/abc12345", "save_dir": "/B"}
+            ),
+        )
+
+    def test_retry_share_config_key_keeps_distinct_share_paths_distinct(self):
+        self.assertNotEqual(
+            retry_share_config_key(
+                {"share_url": "https://pan.baidu.com/s/abc12345", "share_path": "/A"}
+            ),
+            retry_share_config_key(
+                {"share_url": "https://pan.baidu.com/s/abc12345", "share_path": "/B"}
             ),
         )
 
