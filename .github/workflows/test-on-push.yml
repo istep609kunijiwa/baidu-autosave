@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   actionlint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout repository
@@ -22,10 +22,10 @@ jobs:
         persist-credentials: false
 
     - name: Lint GitHub Actions workflows
-      uses: rhysd/actionlint@v1
+      uses: rhysd/actionlint@v1.7.12
 
   quality-security:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout repository
@@ -56,7 +56,7 @@ jobs:
         python -m pip_audit -r requirements.txt -r requirements-test.txt -r requirements-quality.txt
 
   dependency-lock:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -86,7 +86,7 @@ jobs:
       run: python scripts/check_dependency_lock.py
 
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:

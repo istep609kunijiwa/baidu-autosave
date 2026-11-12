@@ -309,6 +309,10 @@ export EXCLUDE_FOLDER_FILTER="微信|扫码|包邮"
 export REGEX_PATTERN='^(?!.*(?:微信|扫码|包邮)).*$'
 # 可选：匹配后重命名
 export REGEX_REPLACE=""
+# 大型分享的受控扫描参数（建议从以下值起步）
+export TRANSFERSHARE_SHARED_SCAN_CONCURRENCY="2"
+export TRANSFERSHARE_SCAN_BATCH_SIZE="250"
+export TRANSFERSHARE_TRANSFER_FLUSH_SIZE="100"
 
 # 运行程序
 python transfer_runner.py
@@ -337,10 +341,12 @@ EXCLUDE_FOLDER_FILTER=微信|扫码|包邮
 注意：失败清单可能包含分享链接、提取码和文件路径。workflow 只缓存 `.transfershare_failed_transfers.json.enc`；未配置 `TRANSFERSHARE_STATE_KEY` 时会跳过跨 run 状态恢复和保存，不会退回到明文缓存。
 
 **GitHub Actions 运维与安全：**
-- 定时转存每 6 小时的第 17 分钟触发，并通过并发锁串行同一分支的转存任务，不取消正在运行的任务。
+- 定时转存每天北京时间 08:17、20:17 触发，并通过并发锁串行同一分支的转存任务，不取消正在运行的任务。
 - workflow 使用 `permissions: contents: read`，checkout 显式设置 `persist-credentials: false`。
+- Actions runner 固定为 `ubuntu-24.04`，避免 `ubuntu-latest` 升级后丢失 Python 3.9 或改变转存运行环境。
 - 测试 workflow 会运行 `actionlint`，并在 Python 3.9 与 Python 3.12 的 matrix 上执行单测（最低 / 最高版本）。
-- 定时脚本第一次运行超时为 7 分钟，失败后等待 5 秒重试，第二次运行超时为 10 分钟。
+- 转存任务单次超时为 20 分钟；底层网络请求自行重试，不再在超时后从共享目录根节点盲目重扫。
+- Actions 默认以 2 路并发扫描共享目录，每 250 个文件分析一次候选，并每 100 个新增文件逐批转存。
 - Cookie 日志默认脱敏；`save_baidu_cookies.py --show-full-cookie` 只用于可信本地终端的临时排查。
 
 ---

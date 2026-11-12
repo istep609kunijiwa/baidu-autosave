@@ -57,7 +57,10 @@ if TYPE_CHECKING:
     except ImportError:
         pass  # Optional dependency
 
-PLAYWRIGHT_AVAILABLE = find_spec("playwright.sync_api") is not None
+# ``find_spec("playwright.sync_api")`` raises ModuleNotFoundError when the optional
+# top-level package is absent.  Probe the parent package so normal transfer/test
+# environments do not need Playwright merely to import this helper module.
+PLAYWRIGHT_AVAILABLE = find_spec("playwright") is not None
 
 USER_DATA_DIR = str(Path.home() / ".baidu_pan_profile")  # 持久化用户目录
 OUTPUT_ENV = "baidu_cookies.env"  # 输出 env 片段文件

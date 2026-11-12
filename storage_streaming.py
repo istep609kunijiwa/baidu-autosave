@@ -8,8 +8,10 @@ import threading
 
 from logger import get_logger
 from storage_constants import (
+    SCAN_BATCH_SIZE,
     STREAM_PRODUCER_JOIN_TIMEOUT,
     TRANSFER_BATCH_SIZE,
+    TRANSFER_FLUSH_SIZE,
     TRANSFER_PIPELINE_ENABLED,
 )
 from storage_errors import classify_storage_error, parse_share_error
@@ -42,7 +44,9 @@ def transfer_share_streaming(
         progress_callback("info", "【步骤2/4】扫描共享文件并过滤")
 
     sentinel = object()
-    stream_queue = queue.Queue(maxsize=max(TRANSFER_BATCH_SIZE * 2, 1))
+    scan_batch_size = max(1, min(SCAN_BATCH_SIZE, TRANSFER_BATCH_SIZE))
+    transfer_flush_size = max(1, min(TRANSFER_FLUSH_SIZE, TRANSFER_BATCH_SIZE))
+    stream_queue = queue.Queue(maxsize=max(scan_batch_size * 2, 1))
     stop_event = threading.Event()
     producer_error = {}
 
@@ -145,10 +149,10 @@ def transfer_share_streaming(
         nonlocal total_transfer_count, transfer_success_count, dir_error
         if not transfer_item_buffer:
             return None
-        if not force and len(transfer_item_buffer) < TRANSFER_BATCH_SIZE:
+        if not force and len(transfer_item_buffer) < transfer_flush_size:
             return None
 
-        flush_count = len(transfer_item_buffer) if force else TRANSFER_BATCH_SIZE
+        flush_count = len(transfer_item_buffer) if force else transfer_flush_size
         transfer_list = transfer_item_buffer[:flush_count]
         del transfer_item_buffer[:flush_count]
 
@@ -222,7 +226,7 @@ def transfer_share_streaming(
             candidates, local_files_dict, summary, warning_samples, current_planned_paths
         )
         transfer_item_buffer.extend(transfer_list)
-        while len(transfer_item_buffer) >= TRANSFER_BATCH_SIZE:
+        while len(transfer_item_buffer) >= transfer_flush_size:
             buffer_error = flush_transfer_item_buffer()
             if buffer_error:
                 return buffer_error
@@ -234,7 +238,7 @@ def transfer_share_streaming(
             if item is sentinel:
                 break
             shared_file_batch.append(item)
-            if len(shared_file_batch) >= TRANSFER_BATCH_SIZE:
+            if len(shared_file_batch) >= scan_batch_size:
                 dir_error = flush_shared_file_batch()
                 if dir_error:
                     break

@@ -34,6 +34,16 @@ MULTI_SHARE_CONCURRENCY = read_positive_int_env("TRANSFERSHARE_MULTI_SHARE_CONCU
 # 单次 transfer 调用打包的最大 fs_id 数量。
 TRANSFER_BATCH_SIZE = read_positive_int_env("TRANSFERSHARE_TRANSFER_BATCH_SIZE", 999)
 
+# 流式扫描每次送入候选分析的文件数量。默认与历史批量大小一致；大型分享可调小，
+# 让本地对比和后续转存更早开始，而不必等待整棵共享目录扫描完成。
+SCAN_BATCH_SIZE = read_positive_int_env("TRANSFERSHARE_SCAN_BATCH_SIZE", TRANSFER_BATCH_SIZE)
+
+# 已确认需要转存的文件达到该数量时立即提交。默认保持历史行为；大型分享可调小，
+# 使少量新增文件在扫描过程中逐批落盘。实际值不会超过 TRANSFER_BATCH_SIZE。
+TRANSFER_FLUSH_SIZE = read_positive_int_env(
+    "TRANSFERSHARE_TRANSFER_FLUSH_SIZE", TRANSFER_BATCH_SIZE
+)
+
 # 转存失败的整体重试次数（不含首次调用）。
 TRANSFER_FAILED_RETRY_ATTEMPTS = read_positive_int_env(
     "TRANSFERSHARE_TRANSFER_FAILED_RETRY_ATTEMPTS", 2
@@ -62,6 +72,8 @@ __all__ = [
     "BATCH_SHARE_DELAY",
     "MULTI_SHARE_CONCURRENCY",
     "TRANSFER_BATCH_SIZE",
+    "SCAN_BATCH_SIZE",
+    "TRANSFER_FLUSH_SIZE",
     "TRANSFER_FAILED_RETRY_ATTEMPTS",
     "TRANSFER_FAILED_RETRY_DELAY",
     "STREAM_PRODUCER_JOIN_TIMEOUT",

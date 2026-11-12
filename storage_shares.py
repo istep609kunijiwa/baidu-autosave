@@ -3,6 +3,8 @@
 
 import os
 import posixpath
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 from env_utils import read_positive_int_env
 from storage_metrics import emit_storage_metric
@@ -19,11 +21,15 @@ _DEFAULT_SHARED_DIR_PAGE_SIZE = read_positive_int_env("TRANSFERSHARE_SHARED_PAGE
 _DEFAULT_SHARED_DIR_PAGE_PROBE_ON_SHORT = (
     read_positive_int_env("TRANSFERSHARE_SHARED_PAGE_PROBE_ON_SHORT", 0) >= 1
 )
+# 同时枚举多少个独立共享目录。默认 1 保持兼容；GitHub Actions 对大型分享使用 2，
+# 在不过度触发百度限流的前提下重叠目录列表请求的网络等待。
+_DEFAULT_SHARED_DIR_CONCURRENCY = read_positive_int_env("TRANSFERSHARE_SHARED_SCAN_CONCURRENCY", 1)
 
 
 class SharedPathService:
     SHARED_DIR_PAGE_SIZE = _DEFAULT_SHARED_DIR_PAGE_SIZE
     SHARED_DIR_PAGE_PROBE_ON_SHORT = _DEFAULT_SHARED_DIR_PAGE_PROBE_ON_SHORT
+    SHARED_DIR_CONCURRENCY = _DEFAULT_SHARED_DIR_CONCURRENCY
     PROGRESS_DIR_INTERVAL = 20
     PROGRESS_PAGE_INTERVAL = 20
     PROGRESS_FILE_INTERVAL = 500
@@ -277,6 +283,105 @@ class SharedPathService:
     def list_shared_dir_children(self, path, uk, share_id, bdstoken):
         return list(self.iter_shared_dir_children(path, uk, share_id, bdstoken))
 
+    def _list_shared_dir_pages(self, dir_path, uk, share_id, bdstoken):
+        return list(self._iter_shared_dir_pages(dir_path, uk, share_id, bdstoken))
+
+    def _iter_shared_dir_files_concurrent(
+        self,
+        path,
+        uk,
+        share_id,
+        bdstoken,
+        folder_filter,
+        shared_root,
+        progress_callback,
+        stats,
+        exclude_folder_filter,
+        concurrency,
+    ):
+        """Traverse independent shared directories with bounded concurrency.
+
+        All filtering, progress accounting, and yielding stay on the caller thread;
+        workers only perform paginated directory-list requests.  This avoids races in
+        callbacks while overlapping the dominant network latency for large trees.
+        """
+
+        pending_dirs = deque([path])
+        futures = {}
+        executor = ThreadPoolExecutor(
+            max_workers=concurrency,
+            thread_name_prefix="transfershare-shared-scan",
+        )
+
+        def submit_available():
+            while pending_dirs and len(futures) < concurrency:
+                current_path_obj = pending_dirs.popleft()
+                dir_path = getattr(current_path_obj, "path", current_path_obj)
+                stats["dirs"] += 1
+                if self._should_report_progress(stats):
+                    self._report_scan_progress(progress_callback, stats)
+                future = executor.submit(
+                    self._list_shared_dir_pages,
+                    dir_path,
+                    uk,
+                    share_id,
+                    bdstoken,
+                )
+                futures[future] = dir_path
+
+        submit_available()
+        try:
+            while futures:
+                # Futures are inserted in discovery order.  Waiting for the oldest
+                # submitted directory keeps filtering/deduplication deterministic,
+                # while the other directory requests continue running in parallel.
+                future = next(iter(futures))
+                dir_path = futures.pop(future)
+                try:
+                    pages = future.result()
+                except Exception as exc:
+                    handle_error_and_notify(
+                        exc,
+                        f"获取共享目录文件时发生异常\n目录路径: {dir_path}",
+                        self.wechat_notifier,
+                        None,
+                        collect=True,
+                    )
+                    raise
+
+                for page, sub_files in pages:
+                    stats["pages"] += 1
+                    if self._should_report_progress(stats):
+                        self._report_scan_progress(progress_callback, stats)
+                    if not sub_files:
+                        if page == 1 and progress_callback:
+                            progress_callback("info", f"共享目录为空: {dir_path}")
+                        continue
+
+                    for sub_file in sub_files:
+                        child = self._normalize_shared_child(sub_file)
+                        if child["is_dir"]:
+                            folder_name = child["name"]
+                            if should_exclude_folder(folder_name, exclude_folder_filter):
+                                stats["skipped_dirs"] += 1
+                            elif should_include_folder(folder_name, folder_filter):
+                                pending_dirs.append(child["raw"])
+                            else:
+                                stats["skipped_dirs"] += 1
+                            continue
+
+                        file_info = self._normalize_shared_file_info(child["raw"], shared_root)
+                        if file_info:
+                            stats["files"] += 1
+                            if self._should_report_progress(stats):
+                                self._report_scan_progress(progress_callback, stats)
+                            yield file_info
+                submit_available()
+        finally:
+            for future in futures:
+                future.cancel()
+            executor.shutdown(wait=True, cancel_futures=True)
+
     def iter_shared_dir_files(
         self,
         path,
@@ -299,6 +404,22 @@ class SharedPathService:
                 self.wechat_notifier,
                 None,
                 collect=False,
+            )
+            return
+
+        concurrency = max(1, int(getattr(self, "SHARED_DIR_CONCURRENCY", 1)))
+        if concurrency > 1:
+            yield from self._iter_shared_dir_files_concurrent(
+                path,
+                uk,
+                share_id,
+                bdstoken,
+                folder_filter,
+                shared_root,
+                progress_callback,
+                stats,
+                exclude_folder_filter,
+                concurrency,
             )
             return
 
