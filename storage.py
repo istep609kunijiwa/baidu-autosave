@@ -710,12 +710,20 @@ class BaiduStorage:
                 )
                 paths_by_name[file_name].append(full_path)
 
-            logger.info(f"检测到 {len(dup_names)} 个重复文件名：")
-            for name in dup_names:
+            duplicate_name_limit = 20
+            duplicate_path_limit = 5
+            logger.info(f"检测到 {len(dup_names)} 个重复文件名（最多展示20个）：")
+            for name in dup_names[:duplicate_name_limit]:
                 duplicate_paths = paths_by_name[name]
                 logger.info(f"  - {name} 出现 {len(duplicate_paths)} 次")
-                for path in duplicate_paths:
+                for path in duplicate_paths[:duplicate_path_limit]:
                     logger.info(f"    {path}")
+                if len(duplicate_paths) > duplicate_path_limit:
+                    logger.info(
+                        f"    ... 其余 {len(duplicate_paths) - duplicate_path_limit} 条已省略"
+                    )
+            if len(dup_names) > duplicate_name_limit:
+                logger.info(f"  ... 其余 {len(dup_names) - duplicate_name_limit} 个重名已省略")
         else:
             logger.debug("没有发现重复文件名。")
 

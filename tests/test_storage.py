@@ -760,6 +760,100 @@ class SharedPathServiceTests(unittest.TestCase):
             self.service.client.list_shared_paths.call_args_list,
         )
 
+    def test_list_shared_files_scans_sibling_directories_concurrently(self):
+        root_dir = SimpleNamespace(
+            path="/single-share",
+            is_dir=True,
+            uk=1,
+            share_id=2,
+            bdstoken="token",
+        )
+        dir_a = SimpleNamespace(path="/single-share/a", is_dir=True, fs_id=10)
+        dir_b = SimpleNamespace(path="/single-share/b", is_dir=True, fs_id=11)
+        a_started = threading.Event()
+        b_started = threading.Event()
+
+        def list_shared_paths(scan_path, *args, **kwargs):
+            if scan_path == "/single-share":
+                return [dir_a, dir_b]
+            if scan_path == "/single-share/a":
+                a_started.set()
+                self.assertTrue(b_started.wait(1), "sibling scan did not overlap")
+                return [
+                    SimpleNamespace(
+                        path="/single-share/a/a.txt",
+                        is_dir=False,
+                        fs_id=12,
+                        md5="md5-a",
+                    )
+                ]
+            if scan_path == "/single-share/b":
+                b_started.set()
+                self.assertTrue(a_started.wait(1), "sibling scan did not overlap")
+                return [
+                    SimpleNamespace(
+                        path="/single-share/b/b.txt",
+                        is_dir=False,
+                        fs_id=13,
+                        md5="md5-b",
+                    )
+                ]
+            return []
+
+        self.service.client.list_shared_paths.side_effect = list_shared_paths
+
+        with patch.object(SharedPathService, "SHARED_DIR_CONCURRENCY", 2):
+            files = self.service.list_shared_files([root_dir])
+
+        self.assertEqual({"a/a.txt", "b/b.txt"}, {item["path"] for item in files})
+
+    def test_list_shared_files_concurrency_preserves_discovery_order(self):
+        root_dir = SimpleNamespace(
+            path="/single-share",
+            is_dir=True,
+            uk=1,
+            share_id=2,
+            bdstoken="token",
+        )
+        dir_a = SimpleNamespace(path="/single-share/a", is_dir=True, fs_id=10)
+        dir_b = SimpleNamespace(path="/single-share/b", is_dir=True, fs_id=11)
+        release_a = threading.Event()
+        b_finished = threading.Event()
+
+        def list_shared_paths(scan_path, *args, **kwargs):
+            if scan_path == "/single-share":
+                return [dir_a, dir_b]
+            if scan_path == "/single-share/a":
+                self.assertTrue(b_finished.wait(1), "second sibling did not run concurrently")
+                release_a.set()
+                return [
+                    SimpleNamespace(
+                        path="/single-share/a/same.txt",
+                        is_dir=False,
+                        fs_id=12,
+                        md5="md5-a",
+                    )
+                ]
+            if scan_path == "/single-share/b":
+                b_finished.set()
+                self.assertTrue(release_a.wait(1), "first sibling did not finish")
+                return [
+                    SimpleNamespace(
+                        path="/single-share/b/same.txt",
+                        is_dir=False,
+                        fs_id=13,
+                        md5="md5-b",
+                    )
+                ]
+            return []
+
+        self.service.client.list_shared_paths.side_effect = list_shared_paths
+
+        with patch.object(SharedPathService, "SHARED_DIR_CONCURRENCY", 2):
+            files = self.service.list_shared_files([root_dir])
+
+        self.assertEqual(["a/same.txt", "b/same.txt"], [item["path"] for item in files])
+
     def test_list_shared_dir_children_returns_direct_child_metadata(self):
         child_dir = SimpleNamespace(
             path="/single-share/src",
@@ -1395,7 +1489,7 @@ class BaiduStorageFlowTests(unittest.TestCase):
         self.assertEqual({"/A/a.txt": "md5-a", "/B/a.txt": "md5-b"}, result)
         logger.info.assert_has_calls(
             [
-                call("检测到 1 个重复文件名："),
+                call("检测到 1 个重复文件名（最多展示20个）："),
                 call("  - a.txt 出现 2 次"),
                 call("    /save/A/a.txt"),
                 call("    /save/B/a.txt"),
@@ -1489,6 +1583,45 @@ class BaiduStorageFlowTests(unittest.TestCase):
         self.assertEqual([True], scan_continued_after_transfer)
         self.assertEqual(2, self.storage.client.transfer_shared_paths.call_count)
         self.storage._load_share_files.assert_not_called()
+
+    def test_transfer_share_uses_independent_scan_and_flush_sizes(self):
+        self.storage._normalize_save_dir = Mock(return_value="/save")
+        entry_context = {
+            "shared_paths": [Mock(is_dir=False)],
+            "uk": 1,
+            "share_id": 2,
+            "bdstoken": "token",
+        }
+        transfer_started = threading.Event()
+        scan_continued_after_transfer = []
+
+        def shared_files():
+            yield {"fs_id": 1, "path": "1.txt"}
+            yield {"fs_id": 2, "path": "2.txt"}
+            scan_continued_after_transfer.append(transfer_started.wait(1))
+            yield {"fs_id": 3, "path": "3.txt"}
+
+        def transfer_side_effect(**kwargs):
+            transfer_started.set()
+
+        self.storage._load_share_entries = Mock(return_value=entry_context)
+        self.storage.share_service.iter_shared_files.side_effect = lambda *args, **kwargs: (
+            shared_files()
+        )
+        self.storage._scan_local_files_dict = Mock(return_value={})
+        self.storage.path_service.ensure_dir_exists.return_value = True
+        self.storage.client.transfer_shared_paths.side_effect = transfer_side_effect
+
+        with (
+            patch("storage_streaming.TRANSFER_BATCH_SIZE", 999),
+            patch("storage_streaming.SCAN_BATCH_SIZE", 2),
+            patch("storage_streaming.TRANSFER_FLUSH_SIZE", 1),
+        ):
+            result = self.storage.transfer_share("https://pan.baidu.com/s/abc")
+
+        self.assertTrue(result["success"])
+        self.assertEqual([True], scan_continued_after_transfer)
+        self.assertEqual(3, self.storage.client.transfer_shared_paths.call_count)
 
     def test_transfer_share_streaming_batches_transfer_items_across_scan_batches(self):
         self.storage._normalize_save_dir = Mock(return_value="/save")

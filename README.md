@@ -183,6 +183,8 @@ python save_baidu_cookies.py --repo YOUR_USERNAME/transfershare
 | `REGEX_REPLACE` | | 与 `REGEX_PATTERN` 配合重命名匹配文件 |
 | `TRANSFERSHARE_STATE_KEY` | | 加密失败清单的密钥，用 `openssl rand -base64 32` 生成 |
 
+大型分享默认在 Actions 中使用以下受控参数：共享目录扫描并发为 2、每 250 个共享文件执行一次候选分析、每 100 个新增文件提交一次转存。这样可以重叠目录请求的网络等待，并在完整扫描结束前逐步保存新增文件。需要自建运行环境时可通过 `TRANSFERSHARE_SHARED_SCAN_CONCURRENCY`、`TRANSFERSHARE_SCAN_BATCH_SIZE` 和 `TRANSFERSHARE_TRANSFER_FLUSH_SIZE` 调整；目录并发不建议超过 4，以免触发百度限流。
+
 例如排除路径中包含“微信”“扫码”或“包邮”的文件，并直接跳过同名文件夹：
 
 ```text

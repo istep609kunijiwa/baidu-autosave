@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   transfer:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GITHUB_ACTIONS: 'true'
 
@@ -80,10 +80,8 @@ jobs:
           echo "无法解密失败清单，跳过历史状态"
         fi
 
-    - name: Run transfer task (First attempt)
-      id: first_attempt
-      timeout-minutes: 7
-      continue-on-error: true
+    - name: Run transfer task
+      timeout-minutes: 20
       env:
         BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
         SHARE_URLS: ${{ secrets.SHARE_URLS }}
@@ -94,31 +92,13 @@ jobs:
         REGEX_PATTERN: ${{ secrets.REGEX_PATTERN }}
         REGEX_REPLACE: ${{ secrets.REGEX_REPLACE }}
         TRANSFERSHARE_FAILED_STATE_ENABLED: ${{ steps.failed_state.outputs.enabled }}
-        TRANSFERSHARE_SUPPRESS_RESULT_NOTIFICATION: "1"
+        TRANSFERSHARE_SHARED_SCAN_CONCURRENCY: "2"
+        TRANSFERSHARE_SCAN_BATCH_SIZE: "250"
+        TRANSFERSHARE_TRANSFER_FLUSH_SIZE: "100"
       run: |
-        echo "开始执行转存任务 (第一次尝试)"
-        echo "超时时间: 7 分钟"
+        echo "开始执行转存任务"
+        echo "超时时间: 20 分钟"
         echo "========================================"
-        ./scripts/run_transfer_task.sh
-
-    - name: Run transfer task (Second attempt)
-      if: steps.first_attempt.outcome == 'failure'
-      timeout-minutes: 10
-      env:
-        BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
-        SHARE_URLS: ${{ secrets.SHARE_URLS }}
-        SAVE_DIR: ${{ secrets.SAVE_DIR }}
-        WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
-        FOLDER_FILTER: ${{ secrets.FOLDER_FILTER }}
-        EXCLUDE_FOLDER_FILTER: ${{ secrets.EXCLUDE_FOLDER_FILTER }}
-        REGEX_PATTERN: ${{ secrets.REGEX_PATTERN }}
-        REGEX_REPLACE: ${{ secrets.REGEX_REPLACE }}
-        TRANSFERSHARE_FAILED_STATE_ENABLED: ${{ steps.failed_state.outputs.enabled }}
-      run: |
-        echo "第一次尝试失败，开始第二次尝试"
-        echo "超时时间: 10 分钟"
-        echo "========================================"
-        sleep 5
         ./scripts/run_transfer_task.sh
 
     - name: Encrypt failed state

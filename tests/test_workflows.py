@@ -42,8 +42,8 @@ class WorkflowStaticTests(unittest.TestCase):
         content, workflow = load_workflow(".github/workflows/baidu-transfer.yml")
 
         self.assertEqual({"contents": "read"}, workflow["permissions"])
-        self.assertIn("- cron: '17 */6 * * *'", content)
-        self.assertNotIn("- cron: '0 */6 * * *'", content)
+        self.assertIn("- cron: '17 0,12 * * *'", content)
+        self.assertNotIn("- cron: '17 */6 * * *'", content)
 
     def test_baidu_transfer_workflow_has_safe_concurrency(self):
         _, workflow = load_workflow(".github/workflows/baidu-transfer.yml")
@@ -60,21 +60,18 @@ class WorkflowStaticTests(unittest.TestCase):
         for name in ("BAIDU_COOKIES", "SHARE_URLS", "SAVE_DIR", "WECHAT_WEBHOOK"):
             self.assertIn(f"        {name}: ${{{{ secrets.{name} }}}}", content)
 
-    def test_baidu_transfer_workflow_suppresses_first_attempt_result_notification(self):
+    def test_baidu_transfer_workflow_uses_bounded_large_scan_settings(self):
         _, workflow = load_workflow(".github/workflows/baidu-transfer.yml")
         steps = workflow_steps(workflow, "transfer")
-        first_attempt = next(step for step in steps if step.get("id") == "first_attempt")
-        second_attempt = next(
-            step for step in steps if step.get("name") == "Run transfer task (Second attempt)"
-        )
+        transfer_step = next(step for step in steps if step.get("name") == "Run transfer task")
 
-        self.assertEqual(
-            "1",
-            first_attempt["env"].get("TRANSFERSHARE_SUPPRESS_RESULT_NOTIFICATION"),
-        )
-        self.assertNotIn(
-            "TRANSFERSHARE_SUPPRESS_RESULT_NOTIFICATION",
-            second_attempt.get("env", {}),
+        self.assertEqual(20, transfer_step["timeout-minutes"])
+        self.assertEqual("2", transfer_step["env"]["TRANSFERSHARE_SHARED_SCAN_CONCURRENCY"])
+        self.assertEqual("250", transfer_step["env"]["TRANSFERSHARE_SCAN_BATCH_SIZE"])
+        self.assertEqual("100", transfer_step["env"]["TRANSFERSHARE_TRANSFER_FLUSH_SIZE"])
+        self.assertNotIn("TRANSFERSHARE_SUPPRESS_RESULT_NOTIFICATION", transfer_step["env"])
+        self.assertFalse(
+            any(step.get("name") == "Run transfer task (Second attempt)" for step in steps)
         )
 
     def test_baidu_transfer_workflow_passes_failed_state_enabled_flag(self):
@@ -84,7 +81,7 @@ class WorkflowStaticTests(unittest.TestCase):
             step for step in steps if step.get("name", "").startswith("Run transfer task")
         ]
 
-        self.assertEqual(2, len(transfer_steps))
+        self.assertEqual(1, len(transfer_steps))
         for step in transfer_steps:
             self.assertEqual(
                 "${{ steps.failed_state.outputs.enabled }}",
@@ -122,7 +119,7 @@ class WorkflowStaticTests(unittest.TestCase):
         self.assertIn("bash scripts/install_dependencies.sh test", content)
         self.assertNotIn("print(BaiduPCSApi)", content)
         actionlint_steps = steps_using(
-            workflow_steps(workflow, "actionlint"), "rhysd/actionlint@v1"
+            workflow_steps(workflow, "actionlint"), "rhysd/actionlint@v1.7.12"
         )
         self.assertEqual(1, len(actionlint_steps))
 
@@ -243,6 +240,16 @@ class WorkflowStaticTests(unittest.TestCase):
             ["3.9", "3.12"],
             test_job["strategy"]["matrix"]["python-version"],
         )
+
+    def test_workflows_pin_runner_and_actionlint_versions(self):
+        _, transfer_workflow = load_workflow(".github/workflows/baidu-transfer.yml")
+        test_content, test_workflow = load_workflow(".github/workflows/test-on-push.yml")
+
+        self.assertEqual("ubuntu-24.04", transfer_workflow["jobs"]["transfer"]["runs-on"])
+        for job in test_workflow["jobs"].values():
+            self.assertEqual("ubuntu-24.04", job["runs-on"])
+        self.assertIn("uses: rhysd/actionlint@v1.7.12", test_content)
+        self.assertNotIn("uses: rhysd/actionlint@v1\n", test_content)
 
     def test_workflows_use_setup_python_v5(self):
         for workflow_file, job_name in (
