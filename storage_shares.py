@@ -7,6 +7,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 from env_utils import read_positive_int_env
+from storage_errors import classify_storage_error
 from storage_metrics import emit_storage_metric
 from storage_rules import extract_file_info, should_exclude_folder, should_include_folder
 from utils import handle_error_and_notify
@@ -286,6 +287,41 @@ class SharedPathService:
     def _list_shared_dir_pages(self, dir_path, uk, share_id, bdstoken):
         return list(self._iter_shared_dir_pages(dir_path, uk, share_id, bdstoken))
 
+    @staticmethod
+    def _normalize_dir_path_for_compare(path):
+        normalized = str(getattr(path, "path", path) or "").rstrip("/")
+        return normalized or "/"
+
+    def _skip_forbidden_shared_child_dir(
+        self,
+        exc,
+        dir_path,
+        root_dir_path,
+        progress_callback,
+        stats,
+    ):
+        """Skip an inaccessible child without hiding an invalid share root."""
+
+        if classify_storage_error(exc).kind != "share_forbidden":
+            return False
+        if self._normalize_dir_path_for_compare(dir_path) == self._normalize_dir_path_for_compare(
+            root_dir_path
+        ):
+            return False
+
+        stats["skipped_dirs"] += 1
+        emit_storage_metric(
+            "shared_dir_skipped",
+            dir_path=dir_path,
+            reason="share_forbidden",
+        )
+        if progress_callback:
+            progress_callback(
+                "warning",
+                f"已跳过禁止分享的子目录，继续扫描其他目录: {dir_path}",
+            )
+        return True
+
     def _iter_shared_dir_files_concurrent(
         self,
         path,
@@ -306,6 +342,7 @@ class SharedPathService:
         callbacks while overlapping the dominant network latency for large trees.
         """
 
+        root_dir_path = getattr(path, "path", path)
         pending_dirs = deque([path])
         futures = {}
         executor = ThreadPoolExecutor(
@@ -340,6 +377,15 @@ class SharedPathService:
                 try:
                     pages = future.result()
                 except Exception as exc:
+                    if self._skip_forbidden_shared_child_dir(
+                        exc,
+                        dir_path,
+                        root_dir_path,
+                        progress_callback,
+                        stats,
+                    ):
+                        submit_available()
+                        continue
                     handle_error_and_notify(
                         exc,
                         f"获取共享目录文件时发生异常\n目录路径: {dir_path}",
@@ -396,6 +442,8 @@ class SharedPathService:
     ):
         if stats is None:
             stats = self._new_scan_stats()
+
+        root_dir_path = getattr(path, "path", path)
 
         if not self.client:
             handle_error_and_notify(
@@ -473,6 +521,14 @@ class SharedPathService:
             except StopIteration:
                 continue
             except Exception as exc:
+                if self._skip_forbidden_shared_child_dir(
+                    exc,
+                    dir_path,
+                    root_dir_path,
+                    progress_callback,
+                    stats,
+                ):
+                    continue
                 handle_error_and_notify(
                     exc,
                     f"获取共享目录文件时发生异常\n目录路径: {dir_path}",
