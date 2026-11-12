@@ -854,6 +854,106 @@ class SharedPathServiceTests(unittest.TestCase):
 
         self.assertEqual(["a/same.txt", "b/same.txt"], [item["path"] for item in files])
 
+    def test_list_shared_files_skips_forbidden_child_and_continues_sequential_scan(self):
+        root_dir = SimpleNamespace(
+            path="/single-share",
+            is_dir=True,
+            uk=1,
+            share_id=2,
+            bdstoken="token",
+        )
+        forbidden_dir = SimpleNamespace(
+            path="/single-share/forbidden",
+            is_dir=True,
+            fs_id=10,
+        )
+        good_dir = SimpleNamespace(path="/single-share/good", is_dir=True, fs_id=11)
+        good_file = SimpleNamespace(
+            path="/single-share/good/file.txt",
+            is_dir=False,
+            fs_id=12,
+            md5="md5-good",
+        )
+        progress_callback = Mock()
+
+        def list_shared_paths(scan_path, *args, **kwargs):
+            if scan_path == "/single-share":
+                return [forbidden_dir, good_dir]
+            if scan_path == "/single-share/forbidden":
+                raise RuntimeError("error_code: 115, message: 该文件禁止分享")
+            if scan_path == "/single-share/good":
+                return [good_file]
+            return []
+
+        self.service.client.list_shared_paths.side_effect = list_shared_paths
+
+        with patch.object(SharedPathService, "SHARED_DIR_CONCURRENCY", 1):
+            files = self.service.list_shared_files([root_dir], progress_callback=progress_callback)
+
+        self.assertEqual(["good/file.txt"], [item["path"] for item in files])
+        progress_callback.assert_any_call(
+            "warning",
+            "已跳过禁止分享的子目录，继续扫描其他目录: /single-share/forbidden",
+        )
+        self.assertTrue(
+            any("跳过 1 个目录" in call.args[1] for call in progress_callback.call_args_list)
+        )
+
+    def test_list_shared_files_skips_forbidden_child_and_continues_concurrent_scan(self):
+        root_dir = SimpleNamespace(
+            path="/single-share",
+            is_dir=True,
+            uk=1,
+            share_id=2,
+            bdstoken="token",
+        )
+        forbidden_dir = SimpleNamespace(
+            path="/single-share/forbidden",
+            is_dir=True,
+            fs_id=10,
+        )
+        good_dir = SimpleNamespace(path="/single-share/good", is_dir=True, fs_id=11)
+        good_file = SimpleNamespace(
+            path="/single-share/good/file.txt",
+            is_dir=False,
+            fs_id=12,
+            md5="md5-good",
+        )
+
+        def list_shared_paths(scan_path, *args, **kwargs):
+            if scan_path == "/single-share":
+                return [forbidden_dir, good_dir]
+            if scan_path == "/single-share/forbidden":
+                raise RuntimeError("error_code: 115, message: 该文件禁止分享")
+            if scan_path == "/single-share/good":
+                return [good_file]
+            return []
+
+        self.service.client.list_shared_paths.side_effect = list_shared_paths
+
+        with patch.object(SharedPathService, "SHARED_DIR_CONCURRENCY", 2):
+            files = self.service.list_shared_files([root_dir])
+
+        self.assertEqual(["good/file.txt"], [item["path"] for item in files])
+
+    def test_list_shared_files_keeps_forbidden_root_as_fatal_error(self):
+        root_dir = SimpleNamespace(
+            path="/single-share",
+            is_dir=True,
+            uk=1,
+            share_id=2,
+            bdstoken="token",
+        )
+        self.service.client.list_shared_paths.side_effect = RuntimeError(
+            "error_code: 115, message: 该文件禁止分享"
+        )
+
+        for concurrency in (1, 2):
+            with self.subTest(concurrency=concurrency):
+                with patch.object(SharedPathService, "SHARED_DIR_CONCURRENCY", concurrency):
+                    with self.assertRaisesRegex(RuntimeError, "error_code: 115"):
+                        self.service.list_shared_files([root_dir])
+
     def test_list_shared_dir_children_returns_direct_child_metadata(self):
         child_dir = SimpleNamespace(
             path="/single-share/src",
