@@ -81,7 +81,7 @@ jobs:
         fi
 
     - name: Run transfer task
-      timeout-minutes: 20
+      timeout-minutes: 30
       env:
         BAIDU_COOKIES: ${{ secrets.BAIDU_COOKIES }}
         SHARE_URLS: ${{ secrets.SHARE_URLS }}
@@ -92,12 +92,12 @@ jobs:
         REGEX_PATTERN: ${{ secrets.REGEX_PATTERN }}
         REGEX_REPLACE: ${{ secrets.REGEX_REPLACE }}
         TRANSFERSHARE_FAILED_STATE_ENABLED: ${{ steps.failed_state.outputs.enabled }}
-        TRANSFERSHARE_SHARED_SCAN_CONCURRENCY: "2"
+        TRANSFERSHARE_SHARED_SCAN_CONCURRENCY: "6"
         TRANSFERSHARE_SCAN_BATCH_SIZE: "250"
         TRANSFERSHARE_TRANSFER_FLUSH_SIZE: "100"
       run: |
         echo "开始执行转存任务"
-        echo "超时时间: 20 分钟"
+        echo "超时时间: 30 分钟"
         echo "========================================"
         ./scripts/run_transfer_task.sh
 
